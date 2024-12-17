@@ -1,6 +1,9 @@
 # Ignore credential files
-.json
+creds**.json
 .env
 
 # Ignore logs
 logs/**
+
+# Ignore virtual enviroments
+venv/**
