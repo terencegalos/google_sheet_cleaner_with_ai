@@ -5,6 +5,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 import openai
+from itertools import zip_longest
 
 
 
@@ -25,11 +26,11 @@ logging.basicConfig(
 
 
 # Google Sheets settings
-# SHEET_NAME = "4K Email Campaign Cleaner"
-SHEET_NAME = "CRM Mastersheet"
+SHEET_NAME = "4K Email Campaign Cleaner"
+# SHEET_NAME = "CRM Mastersheet"
 
 # Google Sheet Credentials
-credentials_file = './creds201.json'
+credentials_file = './creds301.json'
 
 # Load environment variables from .env file
 load_dotenv()
@@ -42,7 +43,7 @@ openai.api_key = api_key
 
 
 # Define the cleaning rules in the prompt for company names
-prompt_company = """
+prompt_company_name = """
 Prompt: Clean Prospect List for Email Campaign
 
 Instructions:
@@ -145,6 +146,11 @@ Examples for Reference:
 Output Format:
 Provide each cleaned name on a new line, formatted for professional use.
 """
+campaign_list = [
+    {"name_column":1,"cleaned_name_column":4,"cleaned_name_column_alpha":"D","prompt":prompt_company_name,},
+    {"name_column":2,"cleaned_name_column":5,"cleaned_name_column_alpha":"E","prompt":prompt_first_name,}
+    ]
+
 
 
 
@@ -164,7 +170,7 @@ def authenticate_google_sheet(credentials_file):
 
 
 def process_name(name,prompt):
-    logging.info(f"Processing name : {name}")
+    logging.info(f"Processing : {name}")
     try:
         response = openai.chat.completions.create(
             model="gpt-4o",
@@ -175,47 +181,60 @@ def process_name(name,prompt):
             temperature=0.7,
             max_tokens=50 # Adjust based on expected output length
         )
-        return response.choices[0].message.content.strip()
+        processed_name = response.choices[0].message.content.strip()
+        logging.info(f'Processing completed - Original: {name} - Processed name: {processed_name}')
+        return processed_name
     except Exception as e:
         return f"Error processing: {str(e)}"
     
 
 
 
-def clean_google_sheet():#sheet):
+def clean_google_sheet(sheet):
     """Clean the company names using AI"""
-    # worksheet = sheet.get_worksheet(1) # Get the second tab
+    worksheet = sheet.get_worksheet(1) # Index starts 0 (get the second tab)
     
-    # company_names = worksheet.col_values(1)[1:20]
-    # for i,company in enumerate(company_names):
-    #     print(f"Domain : {company}, num: {i}")
-
     # Assuming the name of the sheet is "Unique names"
-    # if worksheet.title == "Unique names":
-        # Get all company names in Column B starting from the 3rd row
-        # company_names = worksheet.col_values(1)[2:]
-        # logging.info(company_names)
-    # else:
-    #     logging.info(worksheet.title)
-    
-    with open('company_names.txt','r') as file:
-        for i,company_name in enumerate(file):
-            processed_name = process_name(company_name.strip(),prompt)
-            logging.info(f"Original name: {company_name.strip()} => Processed name: {processed_name}")
-            if i > 3:
-                break
+    if worksheet.title == "Unique names":
+                
+        for campaign in campaign_list:
+            # Get all names and processed name starting from 3rd row
+            names = worksheet.col_values(campaign['name_column'])[3:]
+            cleaned_names = worksheet.col_values(campaign['cleaned_name_column'])[3:]
+            
+            # logging.info(f"names: {names[:10]}")
+            # logging.info(f"cleaned_names: {cleaned_names[:10]}")
+            
+            for i,(name,cleaned_name) in enumerate(
+                zip_longest(names,cleaned_names,fillvalue=""), start=4
+            ):
+                
+                # Process only if cleaned name is empty
+                if name and not cleaned_name:
+                    # Start cleaning
+                    processed_name = process_name(name,campaign['prompt'])
+                    
+                    # Save it to the spreadsheet
+                    logging.info('Saving...')
+                    worksheet.update(
+                        range_name=f"{campaign['cleaned_name_column_alpha']}{i}", values=[[processed_name]]
+                    )
+                    
+                    logging.info(f'Saved to spreadsheet.')
+                
+            
 
 
 
 def main():
     logging.info("Script started.")
-    # try:
+    try:
 
-    # sheet = authenticate_google_sheet(credentials_file)
-    clean_google_sheet()#sheet)
-    logging.info('Script completed successfully.')
-    # except Exception as e:
-    #     logging.error(f"Error occurred {e}")
+        sheet = authenticate_google_sheet(credentials_file)
+        clean_google_sheet(sheet)
+        logging.info('Script completed successfully.')
+    except Exception as e:
+        logging.error(f"Script stopped unexpectedly: {e}")
 
 
 
