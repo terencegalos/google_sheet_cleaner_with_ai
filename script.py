@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import openai
 from itertools import zip_longest
 import time
+import random
 
 
 
@@ -100,7 +101,12 @@ def process_name(name,prompt):
         return f"Error processing: {str(e)}"
     
 
-
+def exponential_backoff(retries):
+    """Exponential backoff algorithm."""
+    min_wait = 1 # Min wait time in secs
+    max_wait = 60 # Max wait time in secs
+    wait_time = min(min_wait * (2 ** retries) + random.uniform(0, 1), max_wait)
+    time.sleep(wait_time)
 
 def clean_google_sheet(sheet,prompt_company_name,prompt_first_name):
     """Clean the company names using AI"""
@@ -133,9 +139,19 @@ def clean_google_sheet(sheet,prompt_company_name,prompt_first_name):
                     
                     # Save it to the spreadsheet
                     logging.info('Saving...')
-                    worksheet.update(
-                        range_name=f"{campaign['cleaned_name_column_alpha']}{i}", values=[[processed_name]]
-                    )
+                    
+                    # Exponential backoff algorithm, retries the request with increasing wait times between attempts
+                    for attempt in range(5):
+                        try:
+                            worksheet.update(
+                                range_name=f"{campaign['cleaned_name_column_alpha']}{i}", values=[[processed_name]]
+                            )
+                            break # Exit loop if saving is successful
+                        except APIError as e:
+                            if e.status_code == 429: # Quota exceeded error
+                                exponential_backoff(attempt)
+                            else:
+                                raise
                     
                     logging.info(f'Saved to spreadsheet.')
                 
