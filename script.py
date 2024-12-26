@@ -2,6 +2,7 @@
 import logging
 import os
 import gspread
+from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 import openai
@@ -32,7 +33,7 @@ SHEET_NAME = "4K Email Campaign Cleaner"
 # SHEET_NAME = "CRM Mastersheet"
 
 # Google Sheet Credentials
-credentials_file = './creds301.json'
+credentials_file = './creds401.json'
 
 # Load environment variables from .env file
 load_dotenv()
@@ -82,14 +83,14 @@ def get_prompts_from_sheet(sheet):
 
 
 
-def process_name(name,prompt):
+def process_name(name,prompt,campaign):
     logging.info(f"Processing : {name}")
     try:
         response = openai.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role":"system","content":prompt},
-                {"role":"user","content":f"Please clean the following company name according to the rules: {name}"}
+                {"role":"user","content":f"Please clean the following {campaign} name according to the rules: {name}"}
             ],
             temperature=0.7,
             max_tokens=50 # Adjust based on expected output length
@@ -116,8 +117,8 @@ def clean_google_sheet(sheet,prompt_company_name,prompt_first_name):
     if worksheet.title == "Unique names":
         
         campaign_list = [
-            {"name_column":1,"cleaned_name_column":4,"cleaned_name_column_alpha":"D","prompt":prompt_company_name,},
-            {"name_column":2,"cleaned_name_column":5,"cleaned_name_column_alpha":"E","prompt":prompt_first_name,}
+            {"name_column":1,"cleaned_name_column":4,"cleaned_name_column_alpha":"D","prompt":prompt_company_name,"name":"company"},
+            {"name_column":2,"cleaned_name_column":5,"cleaned_name_column_alpha":"E","prompt":prompt_first_name,"name":"first"}
         ]
                 
         for campaign in campaign_list:
@@ -135,7 +136,7 @@ def clean_google_sheet(sheet,prompt_company_name,prompt_first_name):
                 # Process only if cleaned name is empty
                 if name and not cleaned_name:
                     # Start cleaning
-                    processed_name = process_name(name,campaign['prompt'])
+                    processed_name = process_name(name,campaign['prompt'],campaign['name'])
                     
                     # Save it to the spreadsheet
                     logging.info('Saving...')
@@ -148,10 +149,8 @@ def clean_google_sheet(sheet,prompt_company_name,prompt_first_name):
                             )
                             break # Exit loop if saving is successful
                         except APIError as e:
-                            if e.status_code == 429: # Quota exceeded error
-                                exponential_backoff(attempt)
-                            else:
-                                raise
+                            logging.error(f"Error updating worksheet {e}")
+                            exponential_backoff(attempt)
                     
                     logging.info(f'Saved to spreadsheet.')
                 
